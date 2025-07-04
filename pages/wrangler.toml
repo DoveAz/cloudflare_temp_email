@@ -7,11 +7,6 @@ binding = "BACKEND"
 service = "cloudflare_temp_email"
 environment = "production"
 
-[assets]
-directory = "../frontend/dist/"
-binding = "ASSETS"
-run_worker_first = true
-
 ADMIN_PASSWORDS = ["Li8769939"]
 
 [[d1_databases]]
