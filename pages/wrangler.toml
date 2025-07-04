@@ -6,3 +6,15 @@ compatibility_date = "2024-05-13"
 binding = "BACKEND"
 service = "cloudflare_temp_email"
 environment = "production"
+
+[assets]
+directory = "../frontend/dist/"
+binding = "ASSETS"
+run_worker_first = true
+
+ADMIN_PASSWORDS = ["Li8769939"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "temp-email" # D1 数据库名称
+database_id = "a703dd5b-a112-4369-b521-16e68f2c9012" # D1 数据库 ID
