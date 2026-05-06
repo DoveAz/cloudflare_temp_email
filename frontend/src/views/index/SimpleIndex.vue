@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { ref, onMounted, computed, watch, onBeforeUnmount } from 'vue'
+import { useScopedI18n } from '@/i18n/app'
 import { useMessage } from 'naive-ui'
 import {
     ExitToAppFilled,
@@ -16,51 +16,21 @@ import { api } from '../../api'
 import Login from '../common/Login.vue'
 import AccountSettings from './AccountSettings.vue'
 import { processItem } from '../../utils/email-parser'
-import { utcToLocalDate } from '../../utils'
-import ShadowHtmlComponent from '../../components/ShadowHtmlComponent.vue'
+import MailContentRenderer from '../../components/MailContentRenderer.vue'
+import AddressSelect from '../../components/AddressSelect.vue'
 
-const { jwt, settings, useSimpleIndex, useUTCDate, showAddressCredential } = useGlobalState()
+const { jwt, settings, useSimpleIndex, showAddressCredential, openSettings, loading } = useGlobalState()
 const message = useMessage()
 
 // 邮件数据
 const currentPage = ref(1)
 const totalCount = ref(0)
-const loading = ref(false)
 const currentMail = ref(null)
 const showAccountSettingsCard = ref(false)
+const currentAutoRefreshInterval = ref(60)
+const timer = ref(null)
 
-const { t } = useI18n({
-    messages: {
-        en: {
-            exitSimpleIndex: 'Exit Simple',
-            copyAddress: 'Copy',
-            addressCopied: 'Address copied successfully',
-            refreshMails: 'Refresh',
-            noMails: 'No mails found',
-            prevPage: 'Previous',
-            nextPage: 'Next',
-            refreshSuccess: 'Mails refreshed successfully',
-            mailCount: '{current} / {total} emails',
-            accountSettings: "Account Settings",
-            addressCredential: 'Mail Address Credential',
-            addressCredentialTip: 'Please copy the Mail Address Credential and you can use it to login',
-        },
-        zh: {
-            exitSimpleIndex: '退出极简',
-            copyAddress: '复制',
-            addressCopied: '地址复制成功',
-            refreshMails: '刷新',
-            noMails: '暂无邮件',
-            prevPage: '上一页',
-            nextPage: '下一页',
-            refreshSuccess: '邮件刷新成功',
-            mailCount: '{current} / {total} 封邮件',
-            accountSettings: "账户设置",
-            addressCredential: '邮箱地址凭证',
-            addressCredentialTip: '请复制邮箱地址凭证，你可以使用它登录你的邮箱。'
-        }
-    }
-})
+const { t } = useScopedI18n('views.index.SimpleIndex')
 
 // 复制地址
 const copyAddress = async () => {
@@ -86,9 +56,26 @@ const fetchMails = async () => {
     }
 }
 
+// 删除邮件
+const deleteMail = async () => {
+    if (!currentMail.value) return;
+    try {
+        await api.fetch(`/api/mails/${currentMail.value.id}`, { method: 'DELETE' });
+        message.success(t('deleteSuccess'));
+        currentMail.value = null;
+        await refreshMails();
+    } catch (error) {
+        console.error('Failed to delete mail:', error);
+        message.error('删除邮件失败');
+    }
+}
+
 // 刷新邮件
 const refreshMails = async () => {
+    if (loading.value) return
     currentPage.value = 1
+    showAccountSettingsCard.value = false
+    currentAutoRefreshInterval.value = 60
     await fetchMails()
     message.success(t('refreshSuccess'))
 }
@@ -98,6 +85,7 @@ const currentPageDisplay = computed(() => currentPage.value)
 const totalPages = computed(() => Math.max(1, totalCount.value))
 const canGoPrev = computed(() => currentPage.value > 1)
 const canGoNext = computed(() => currentPage.value < totalPages.value)
+const isFirstPage = computed(() => currentPage.value === 1)
 
 const prevPage = async () => {
     if (canGoPrev.value) {
@@ -119,6 +107,22 @@ watch(currentPage, () => {
 onMounted(async () => {
     await api.getSettings()
     await fetchMails()
+
+    // 启动自动刷新
+    timer.value = setInterval(async () => {
+        if (!isFirstPage.value) {
+            currentAutoRefreshInterval.value = 60
+            return
+        }
+
+        if (--currentAutoRefreshInterval.value <= 0) {
+            await refreshMails()
+        }
+    }, 1000)
+})
+
+onBeforeUnmount(() => {
+    clearInterval(timer.value)
 })
 </script>
 
@@ -133,7 +137,7 @@ onMounted(async () => {
         <div v-else>
             <n-card :bordered="false" embedded>
                 <div style="text-align: center; margin-bottom: 16px; font-size: 18px;">
-                    <n-text strong size="large">{{ settings.address }}</n-text>
+                    <AddressSelect :showCopy="false" size="small" />
                 </div>
                 <n-flex justify="center">
                     <n-button @click="refreshMails" :loading="loading" type="primary" tertiary size="small">
@@ -169,6 +173,11 @@ onMounted(async () => {
                         {{ t('accountSettings') }}
                     </n-button>
                 </n-flex>
+                <div v-if="isFirstPage" style="text-align: center; margin-top: 12px;">
+                    <n-text depth="3" size="12">
+                        {{ t('refreshAfter', { msg: Math.max(0, currentAutoRefreshInterval) }) }}
+                    </n-text>
+                </div>
             </n-card>
 
             <!-- 账户设置卡片 -->
@@ -177,7 +186,7 @@ onMounted(async () => {
                 <AccountSettings />
             </n-card>
 
-            <n-card :bordered="false" embedded style="text-align: left;">
+            <n-card v-else :bordered="false" embedded style="text-align: left;">
 
                 <div v-if="totalCount > 1">
                     <n-flex justify="space-between">
@@ -208,22 +217,10 @@ onMounted(async () => {
                 </div>
                 <div v-else>
                     <h3 v-if="currentMail.subject">{{ currentMail.subject }}</h3>
-
-                    <n-space>
-                        <n-tag type="info">
-                            ID: {{ currentMail.id }}
-                        </n-tag>
-                        <n-tag type="info">
-                            {{ utcToLocalDate(currentMail.created_at, useUTCDate.value) }}
-                        </n-tag>
-                        <n-tag type="info">
-                            FROM: {{ currentMail.source }}
-                        </n-tag>
-                    </n-space>
-
                     <div style="margin-top: 16px;">
-                        <ShadowHtmlComponent v-if="currentMail.message" :htmlContent="currentMail.message" />
-                        <pre v-else>{{ currentMail.text }}</pre>
+                        <MailContentRenderer :mail="currentMail" :showEMailTo="false" :showReply="false"
+                            :enableUserDeleteEmail="openSettings.enableUserDeleteEmail" :showSaveS3="false"
+                            :onDelete="deleteMail" />
                     </div>
                 </div>
             </n-card>

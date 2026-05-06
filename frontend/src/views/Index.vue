@@ -1,10 +1,12 @@
 <script setup>
 import { defineAsyncComponent, onMounted, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useScopedI18n } from '@/i18n/app'
 import { useRoute } from 'vue-router'
 
 import { useGlobalState } from '../store'
 import { api } from '../api'
+import { useIsMobile } from '../utils/composables'
+import { FullscreenExitOutlined } from '@vicons/material'
 
 import AddressBar from './index/AddressBar.vue';
 import MailBox from '../components/MailBox.vue';
@@ -15,12 +17,12 @@ import Appearance from './common/Appearance.vue';
 import Webhook from './index/Webhook.vue';
 import Attachment from './index/Attachment.vue';
 import About from './common/About.vue';
-
 import SimpleIndex from './index/SimpleIndex.vue';
 
 const { loading, settings, openSettings, indexTab, globalTabplacement, useSimpleIndex } = useGlobalState()
 const message = useMessage()
 const route = useRoute()
+const isMobile = useIsMobile()
 
 const SendMail = defineAsyncComponent(() => {
   loading.value = true;
@@ -28,36 +30,7 @@ const SendMail = defineAsyncComponent(() => {
     .finally(() => loading.value = false);
 });
 
-const { t } = useI18n({
-  messages: {
-    en: {
-      mailbox: 'Mail Box',
-      sendbox: 'Send Box',
-      sendmail: 'Send Mail',
-      auto_reply: 'Auto Reply',
-      accountSettings: 'Account Settings',
-      appearance: 'Appearance',
-      about: 'About',
-      s3Attachment: 'S3 Attachment',
-      saveToS3Success: 'save to s3 success',
-      webhookSettings: 'Webhook Settings',
-      query: 'Query',
-    },
-    zh: {
-      mailbox: '收件箱',
-      sendbox: '发件箱',
-      sendmail: '发送邮件',
-      auto_reply: '自动回复',
-      accountSettings: '账户',
-      appearance: '外观',
-      about: '关于',
-      s3Attachment: 'S3附件',
-      saveToS3Success: '保存到s3成功',
-      webhookSettings: 'Webhook 设置',
-      query: '查询',
-    }
-  }
-});
+const { t } = useScopedI18n('views.Index')
 
 const fetchMailData = async (limit, offset) => {
   if (mailIdQuery.value > 0) {
@@ -133,6 +106,16 @@ onMounted(() => {
     <div v-else>
       <AddressBar />
       <n-tabs v-if="settings.address" type="card" v-model:value="indexTab" :placement="globalTabplacement">
+        <template #prefix v-if="!isMobile">
+          <n-button @click="useSimpleIndex = true" tertiary size="small">
+            <template #icon>
+              <n-icon>
+                <FullscreenExitOutlined />
+              </n-icon>
+            </template>
+            {{ t('enterSimpleMode') }}
+          </n-button>
+        </template>
         <n-tab-pane name="mailbox" :tab="t('mailbox')">
           <div v-if="showMailIdQuery" style="margin-bottom: 10px;">
             <n-input-group>
@@ -142,15 +125,15 @@ onMounted(() => {
               </n-button>
             </n-input-group>
           </div>
-          <MailBox :key="mailBoxKey" :showEMailTo="false" :showReply="true" :showSaveS3="openSettings.isS3Enabled"
+          <MailBox :key="mailBoxKey" :showEMailTo="false" :showReply="openSettings.enableSendMail" :showSaveS3="openSettings.isS3Enabled"
             :saveToS3="saveToS3" :enableUserDeleteEmail="openSettings.enableUserDeleteEmail"
-            :fetchMailData="fetchMailData" :deleteMail="deleteMail" />
+            :fetchMailData="fetchMailData" :deleteMail="deleteMail" :showFilterInput="true" />
         </n-tab-pane>
-        <n-tab-pane name="sendbox" :tab="t('sendbox')">
+        <n-tab-pane v-if="openSettings.enableSendMail" name="sendbox" :tab="t('sendbox')">
           <SendBox :fetchMailData="fetchSenboxData" :enableUserDeleteEmail="openSettings.enableUserDeleteEmail"
             :deleteMail="deleteSenboxMail" />
         </n-tab-pane>
-        <n-tab-pane name="sendmail" :tab="t('sendmail')">
+        <n-tab-pane v-if="openSettings.enableSendMail" name="sendmail" :tab="t('sendmail')">
           <SendMail />
         </n-tab-pane>
         <n-tab-pane name="accountSettings" :tab="t('accountSettings')">
